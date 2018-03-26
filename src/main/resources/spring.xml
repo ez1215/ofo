@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:mvc="http://www.springframework.org/schema/mvc"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:aop="http://www.springframework.org/schema/aop" xmlns:tx="http://www.springframework.org/schema/tx"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+		http://www.springframework.org/schema/beans/spring-beans-4.0.xsd
+		http://www.springframework.org/schema/mvc
+		http://www.springframework.org/schema/mvc/spring-mvc-4.0.xsd
+		http://www.springframework.org/schema/context
+		http://www.springframework.org/schema/context/spring-context-4.0.xsd
+		http://www.springframework.org/schema/aop
+		http://www.springframework.org/schema/aop/spring-aop-4.0.xsd
+		http://www.springframework.org/schema/tx
+		http://www.springframework.org/schema/tx/spring-tx-4.0.xsd " >
+
+    <context:property-placeholder location="classpath*:conf.properties" ignore-unresolvable="true"/>
+
+    <context:component-scan base-package="com.ofo.*">
+        <context:exclude-filter type="annotation" expression="org.springframework.stereotype.Controller"/>
+    </context:component-scan>
+
+
+    <!-- 定义数据库连接池 -->
+    <bean id="writeDataSource" class="com.alibaba.druid.pool.DruidDataSource" destroy-method="close">
+        <property name="driverClassName" value="${jdbc.master.driver}"/>
+        <property name="url" value="${jdbc.master.url}"/>
+        <property name="username" value="${jdbc.master.username}"/>
+        <property name="password" value="${jdbc.master.password}"/>
+        <property name="maxActive" value="${jdbc.master.maxActive}"/>
+        <property name="initialSize" value="${jdbc.master.initialSize}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.master.timeBetweenEvictionRunsMillis}"/>
+        <property name="validationQuery" value="${jdbc.master.validationQuery}"/>
+        <property name="maxWait" value="${jdbc.master.maxWait}"/>
+        <property name="minIdle" value="${jdbc.master.minIdle}"/>
+        <property name="testWhileIdle" value="${jdbc.master.testWhileIdle}"/>
+        <property name="queryTimeout" value="${jdbc.master.queryTimeout}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.master.minEvictableIdleTimeMillis}"/>
+    </bean>
+
+
+    <bean id="readDataSource" class="com.alibaba.druid.pool.DruidDataSource" destroy-method="close">
+        <property name="driverClassName" value="${jdbc.slave.driver}"/>
+        <property name="url" value="${jdbc.slave.url}"/>
+        <property name="username" value="${jdbc.slave.username}"/>
+        <property name="password" value="${jdbc.slave.password}"/>
+        <property name="maxActive" value="${jdbc.slave.maxActive}"/>
+        <property name="initialSize" value="${jdbc.slave.initialSize}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.slave.timeBetweenEvictionRunsMillis}"/>
+        <property name="validationQuery" value="${jdbc.slave.validationQuery}"/>
+        <property name="maxWait" value="${jdbc.slave.maxWait}"/>
+        <property name="minIdle" value="${jdbc.slave.minIdle}"/>
+        <property name="testWhileIdle" value="${jdbc.slave.testWhileIdle}"/>
+        <property name="queryTimeout" value="${jdbc.slave.queryTimeout}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.slave.minEvictableIdleTimeMillis}"/>
+    </bean>
+
+    <!-- 定义动态数据源 -->
+    <bean id="dataSource" class="com.ofo.data.DynamicDataSource">
+        <!-- 设置多个数据源 -->
+        <property name="targetDataSources">
+            <map key-type="java.lang.String">
+                <entry key="master" value-ref="writeDataSource"/>
+                <entry key="slave"  value-ref="readDataSource"/>
+            </map>
+        </property>
+        <!-- 设置默认数据源 -->
+        <property name="defaultTargetDataSource" ref="writeDataSource"/>
+    </bean>
+
+    <bean id="jdbcTemplate" class="org.springframework.jdbc.core.JdbcTemplate">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+
+    <!-- 定义事务管理器 -->
+    <bean id="transactionManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+
+    <tx:advice id="txAdvice" transaction-manager="transactionManager">
+        <tx:attributes>
+            <!-- 定义查询方法 走读库 -->
+            <tx:method name="select*" read-only="true"/>
+            <tx:method name="find*" read-only="true"/>
+            <tx:method name="get*" read-only="true"/>
+            <tx:method name="query*" read-only="true"/>
+
+            <!-- 定义写方法 走写库 -->
+            <tx:method name="save*" propagation="REQUIRED"/>
+            <tx:method name="update*" propagation="REQUIRED"/>
+            <tx:method name="delete*" propagation="REQUIRED"/>
+
+            <!-- 其他方法使用默认事务策略 -->
+            <tx:method name="*"/>
+        </tx:attributes>
+    </tx:advice>
+
+    <bean id="dataSourceAspect" class="com.ofo.data.DataSourceAspect"/>
+
+    <aop:config>
+        <!-- 定义切面，所有的service的所有方法 -->
+        <aop:pointcut id="txPointcut" expression="execution( * com.ofo.service.*.*(..))"/>
+        <!-- 应用事务策略到Service切面 -->
+        <aop:advisor advice-ref="txAdvice" pointcut-ref="txPointcut"/>
+
+        <!-- 将切面应用到自定义的切面处理器上，-9999保证该切面优先级最高执行 -->
+        <aop:aspect ref="dataSourceAspect" order="-9999">
+            <aop:before method="before" pointcut-ref="txPointcut"/>
+        </aop:aspect>
+    </aop:config>
+</beans>
