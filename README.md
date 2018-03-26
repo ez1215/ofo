@@ -1,2 +1,2 @@
 # ofo
-MySQL read/write  separate With SpringMVC
+MySQL read/write  Separate With SpringMVC
